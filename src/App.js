@@ -1,5 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { ShoppingCart, User, Search, Heart, Star, Upload, LogOut, Menu, X, DollarSign, Check, Clock, Package } from 'lucide-react';
+import { signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
+import { auth, googleProvider, db } from './firebase/config';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+
 const NexoStudiantil = () => {
   const [currentUser, setCurrentUser] = useState(null);
   const [currentView, setCurrentView] = useState('home');
@@ -113,27 +117,117 @@ const NexoStudiantil = () => {
     setProducts(mockProducts);
   }, []);
 
-  const handleGoogleLogin = () => {
-    setCurrentUser({
-      id: 'user123',
-      name: 'Usuario Demo',
-      email: 'demo@nexostudiantil.com',
-      role: 'student',
-      avatar: 'https://ui-avatars.com/api/?name=Usuario+Demo&background=6366f1&color=fff'
-    });
-    setCurrentView('marketplace');
-  };
+  useEffect(() => {
+  const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    if (user) {
+      // Obtener datos del usuario desde Firestore
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        setCurrentUser({
+          id: user.uid,
+          name: user.displayName || userData.name,
+          email: user.email,
+          role: userData.role,
+          avatar: user.photoURL || userData.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.displayName)}&background=6366f1&color=fff`
+        });
+      }
+    } else {
+      setCurrentUser(null);
+    }
+  });
 
-  const handleAdminLogin = () => {
-    setCurrentUser({
-      id: 'admin123',
-      name: 'Administrador',
-      email: 'admin@nexostudiantil.com',
-      role: 'admin',
-      avatar: 'https://ui-avatars.com/api/?name=Admin&background=ef4444&color=fff'
+  return () => unsubscribe();
+}, []);
+
+const handleRegister = async () => {
+  try {
+    const result = await signInWithPopup(auth, googleProvider);
+    const user = result.user;
+    
+    // Verificar si ya está registrado
+    const userDoc = await getDoc(doc(db, 'users', user.uid));
+    
+    if (userDoc.exists()) {
+      alert('Ya tienes una cuenta. Usa "Ingresar como Estudiante".');
+      await signOut(auth);
+      return;
+    }
+    
+    // Determinar rol: admin solo para samirmp123@gmail.com
+    const role = user.email === 'samirmp123@gmail.com' ? 'admin' : 'student';
+    
+    // Guardar nuevo usuario en Firestore
+    await setDoc(doc(db, 'users', user.uid), {
+      name: user.displayName,
+      email: user.email,
+      role: role,
+      avatar: user.photoURL,
+      createdAt: new Date().toISOString()
     });
-    setCurrentView('admin');
-  };
+    
+    setCurrentUser({
+      id: user.uid,
+      name: user.displayName,
+      email: user.email,
+      role: role,
+      avatar: user.photoURL
+    });
+    
+    // Redirigir según rol
+    if (role === 'admin') {
+      alert('¡Bienvenido Administrador!');
+      setCurrentView('admin');
+    } else {
+      alert('¡Registro exitoso! Bienvenido a NEXO STUDIANTIL');
+      setCurrentView('marketplace');
+    }
+    
+  } catch (error) {
+    console.error('Error al registrarse:', error);
+    alert('Error al registrarse. Intenta de nuevo.');
+  }
+};
+
+const handleGoogleLogin = async () => {
+  try {
+    const result = await signInWithPopup(auth, googleProvider);
+    const user = result.user;
+    
+    // Verificar si el usuario ya está registrado
+    const userDoc = await getDoc(doc(db, 'users', user.uid));
+    
+    if (!userDoc.exists()) {
+      // Usuario nuevo - debe registrarse
+      alert('Debes registrarte primero. Click en "Crear Cuenta Gratis".');
+      await signOut(auth);
+      return;
+    }
+    
+    // Usuario ya registrado - obtener su rol
+    const userData = userDoc.data();
+    
+    setCurrentUser({
+      id: user.uid,
+      name: user.displayName || userData.name,
+      email: user.email,
+      role: userData.role,
+      avatar: user.photoURL || userData.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.displayName)}&background=6366f1&color=fff`
+    });
+    
+    // Redirigir según rol
+    if (userData.role === 'admin') {
+      setCurrentView('admin');
+    } else {
+      setCurrentView('marketplace');
+    }
+    
+  } catch (error) {
+    console.error('Error al iniciar sesión:', error);
+    alert('Error al iniciar sesión con Google. Intenta de nuevo.');
+  }
+};
 
   const addToCart = (product) => {
     if (!cart.find(item => item.id === product.id)) {
@@ -214,18 +308,18 @@ const NexoStudiantil = () => {
           </p>
           <div className="flex gap-4 justify-center flex-wrap">
             <button
-              onClick={handleGoogleLogin}
-              className="bg-white border-2 border-indigo-600 text-indigo-600 px-8 py-4 rounded-xl font-semibold hover:bg-indigo-50 transition-all flex items-center gap-2 shadow-lg"
-            >
-              <User size={20} />
-              Ingresar como Estudiante
-            </button>
-            <button
-              onClick={handleAdminLogin}
-              className="bg-indigo-600 text-white px-8 py-4 rounded-xl font-semibold hover:bg-indigo-700 transition-all flex items-center gap-2 shadow-lg"
-            >
-              <User size={20} />
-              Ingresar como Admin
+                onClick={handleGoogleLogin}
+                className="bg-white border-2 border-indigo-600 text-indigo-600 px-8 py-4 rounded-xl font-semibold hover:bg-indigo-50 transition-all flex items-center gap-2 shadow-lg"
+              >
+                <User size={20} />
+                Iniciar Sesión
+              </button>
+              <button
+                onClick={handleRegister}
+                className="bg-indigo-600 text-white px-8 py-4 rounded-xl font-semibold hover:bg-indigo-700 transition-all flex items-center gap-2 shadow-lg"
+              >
+                <User size={20} />
+                Registrarse Gratis
             </button>
           </div>
         </div>
@@ -258,10 +352,10 @@ const NexoStudiantil = () => {
           <h2 className="text-3xl font-bold mb-4">¿Listo para comenzar?</h2>
           <p className="text-xl mb-6">Únete a nuestra comunidad de creadores y compradores</p>
           <button
-            onClick={handleGoogleLogin}
-            className="bg-white text-indigo-600 px-8 py-4 rounded-xl font-semibold hover:bg-gray-100 transition-all"
-          >
-            Crear Cuenta Gratis
+              onClick={handleRegister}
+              className="bg-white text-indigo-600 px-8 py-4 rounded-xl font-semibold hover:bg-gray-100 transition-all"
+            >
+              Crear Cuenta Gratis
           </button>
         </div>
       </div>
@@ -811,11 +905,12 @@ const NexoStudiantil = () => {
                       <p className="text-xs text-gray-500">{currentUser.role === 'admin' ? 'Administrador' : 'Estudiante'}</p>
                     </div>
                     <button
-                      onClick={() => {
-                        setCurrentUser(null);
-                        setCurrentView('home');
-                        setCart([]);
-                      }}
+                      onClick={async () => {
+                                await signOut(auth);
+                                setCurrentUser(null);
+                                setCurrentView('home');
+                                setCart([]);
+                              }}
                       className="text-gray-600 hover:text-red-600 transition-all"
                       title="Cerrar sesión"
                     >
