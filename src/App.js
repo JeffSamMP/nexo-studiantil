@@ -6,7 +6,7 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 const NexoStudiantil = () => {
   const [currentUser, setCurrentUser] = useState(null);
-  const [currentView, setCurrentView] = useState('home');
+  const [currentView, setCurrentView] = useState('marketplace');
   const [products, setProducts] = useState([]);
   const [cart, setCart] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
