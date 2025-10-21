@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingCart, User, Search, Heart, Star, Upload, LogOut, Menu, X, Filter, DollarSign, Eye, MessageCircle, Check, Clock, Package } from 'lucide-react';
-
+import { ShoppingCart, User, Search, Heart, Star, Upload, LogOut, Menu, X, DollarSign, Check, Clock, Package } from 'lucide-react';
 const NexoStudiantil = () => {
   const [currentUser, setCurrentUser] = useState(null);
   const [currentView, setCurrentView] = useState('home');
