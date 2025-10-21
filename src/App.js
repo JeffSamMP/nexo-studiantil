@@ -17,6 +17,9 @@ const NexoStudiantil = () => {
   const [orders, setOrders] = useState([]);
   const [pendingProducts, setPendingProducts] = useState([]);
 
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [loginAction, setLoginAction] = useState(''); // 'cart', 'upload', 'buy'
+
   const categories = [
     { id: 'all', name: 'Todas las Categorías', icon: '🎨' },
     { id: 'design', name: 'Diseño Gráfico', icon: '🎨' },
@@ -229,11 +232,24 @@ const handleGoogleLogin = async () => {
   }
 };
 
-  const addToCart = (product) => {
-    if (!cart.find(item => item.id === product.id)) {
-      setCart([...cart, product]);
-    }
-  };
+ const addToCart = (product) => {
+  if (!requireLogin('cart')) return;
+  
+  if (!cart.find(item => item.id === product.id)) {
+    setCart([...cart, product]);
+    alert('Producto agregado al carrito');
+  } else {
+    alert('Este producto ya está en tu carrito');
+  }
+};
+const requireLogin = (action) => {
+  if (!currentUser) {
+    setLoginAction(action);
+    setShowLoginModal(true);
+    return false;
+  }
+  return true;
+};
 
   const removeFromCart = (productId) => {
     setCart(cart.filter(item => item.id !== productId));
@@ -308,18 +324,18 @@ const handleGoogleLogin = async () => {
           </p>
           <div className="flex gap-4 justify-center flex-wrap">
             <button
-                onClick={handleGoogleLogin}
-                className="bg-white border-2 border-indigo-600 text-indigo-600 px-8 py-4 rounded-xl font-semibold hover:bg-indigo-50 transition-all flex items-center gap-2 shadow-lg"
-              >
-                <User size={20} />
-                Iniciar Sesión
-              </button>
-              <button
-                onClick={handleRegister}
-                className="bg-indigo-600 text-white px-8 py-4 rounded-xl font-semibold hover:bg-indigo-700 transition-all flex items-center gap-2 shadow-lg"
-              >
-                <User size={20} />
-                Registrarse Gratis
+              onClick={() => setCurrentView('marketplace')}
+              className="bg-indigo-600 text-white px-8 py-4 rounded-xl font-semibold hover:bg-indigo-700 transition-all flex items-center gap-2 shadow-lg"
+            >
+              <Search size={20} />
+              Explorar Marketplace
+            </button>
+            <button
+              onClick={handleRegister}
+              className="bg-white border-2 border-indigo-600 text-indigo-600 px-8 py-4 rounded-xl font-semibold hover:bg-indigo-50 transition-all flex items-center gap-2 shadow-lg"
+            >
+              <User size={20} />
+              Comenzar Gratis
             </button>
           </div>
         </div>
@@ -809,20 +825,89 @@ const handleGoogleLogin = async () => {
     </div>
   );
 
+const LoginModal = () => {
+  if (!showLoginModal) return null;
+
+  const getModalText = () => {
+    switch (loginAction) {
+      case 'cart':
+        return 'iniciar sesión para agregar productos al carrito';
+      case 'upload':
+        return 'iniciar sesión para publicar tus trabajos';
+      case 'buy':
+        return 'iniciar sesión para realizar compras';
+      default:
+        return 'iniciar sesión para continuar';
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-gray-50">
-      {!currentUser ? (
-        <HomePage />
-      ) : (
-        <>
-          <nav className="bg-white shadow-lg sticky top-0 z-40">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" onClick={() => setShowLoginModal(false)}>
+      <div className="bg-white rounded-2xl max-w-md w-full p-8" onClick={(e) => e.stopPropagation()}>
+        <div className="text-center mb-6">
+          <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <User className="text-indigo-600" size={32} />
+          </div>
+          <h2 className="text-2xl font-bold mb-2">¡Necesitas una cuenta!/</h2>
+          <p className="text-gray-600">Debes {getModalText()}</p>
+        </div>
+        
+        <div className="space-y-3 mb-4">
+          <button
+            onClick={() => {
+              setShowLoginModal(false);
+              handleRegister();
+            }}
+            className="w-full bg-indigo-600 text-white py-4 rounded-xl font-semibold hover:bg-indigo-700 transition-all flex items-center justify-center gap-2"
+          >
+            <User size={20} />
+            Registrarse Gratis
+          </button>
+          
+          <button
+            onClick={() => {
+              setShowLoginModal(false);
+              handleGoogleLogin();
+            }}
+            className="w-full bg-white border-2 border-indigo-600 text-indigo-600 py-4 rounded-xl font-semibold hover:bg-indigo-50 transition-all flex items-center justify-center gap-2"
+          >
+            <User size={20} />
+            Ya tengo cuenta
+          </button>
+        </div>
+        
+        <button
+          onClick={() => setShowLoginModal(false)}
+          className="w-full text-gray-500 hover:text-gray-700 py-2"
+        >
+          Cancelar
+        </button>
+      </div>
+    </div>
+  );
+};
+  
+ return (
+  <div className="min-h-screen bg-gray-50">
+    {currentView === 'home' ? (
+      <HomePage />
+    ) : (
+      <>
+        <nav className="bg-white shadow-lg sticky top-0 z-40">
             <div className="max-w-7xl mx-auto px-4">
               <div className="flex justify-between items-center h-16">
                 <div className="flex items-center gap-8">
                   <h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent cursor-pointer"
-                      onClick={() => setCurrentView(currentUser.role === 'admin' ? 'admin' : 'marketplace')}>
+                      onClick={() => setCurrentView(currentUser?.role === 'admin' ? 'admin' : 'marketplace')}>
                     NEXO STUDIANTIL
                   </h1>
+
+                  <button
+                    onClick={() => setCurrentView('home')}
+                    className="hidden md:block px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-all"
+                  >
+                    Inicio
+                  </button>
                   
                   <button
                     className="lg:hidden"
@@ -832,7 +917,7 @@ const handleGoogleLogin = async () => {
                   </button>
 
                   <div className="hidden lg:flex gap-4">
-                    {currentUser.role === 'admin' ? (
+                    {currentUser?.role === 'admin' ? (
                       <>
                         <button
                           onClick={() => setCurrentView('admin')}
@@ -862,13 +947,15 @@ const handleGoogleLogin = async () => {
                           Explorar
                         </button>
                         <button
-                          onClick={() => setCurrentView('upload')}
-                          className={`px-4 py-2 rounded-lg font-semibold transition-all flex items-center gap-2 ${
-                            currentView === 'upload' ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-100'
-                          }`}
+                          onClick={() => {
+                            if (requireLogin('upload')) {
+                              setCurrentView('upload');
+                            }
+                          }}
+                          className="px-4 py-2 rounded-lg font-semibold transition-all flex items-center gap-2 text-gray-700 hover:bg-gray-100"
                         >
                           <Upload size={18} />
-                          Publicar
+                          Publicar Trabajo
                         </button>
                         <button
                           onClick={() => setCurrentView('orders')}
@@ -884,11 +971,11 @@ const handleGoogleLogin = async () => {
                 </div>
 
                 <div className="flex items-center gap-4">
-                  {currentUser.role !== 'admin' && (
-                    <button
-                      onClick={() => setCurrentView('cart')}
-                      className="relative p-2 hover:bg-gray-100 rounded-lg transition-all"
-                    >
+                  {currentUser && currentUser.role !== 'admin' && (
+                      <button
+                        onClick={() => setCurrentView('cart')}
+                        className="relative p-2 hover:bg-gray-100 rounded-lg transition-all"
+                      >
                       <ShoppingCart size={24} />
                       {cart.length > 0 && (
                         <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center font-bold">
@@ -899,10 +986,47 @@ const handleGoogleLogin = async () => {
                   )}
                   
                   <div className="flex items-center gap-3 border-l pl-4">
-                    <img src={currentUser.avatar} alt={currentUser.name} className="w-10 h-10 rounded-full" />
+                    {currentUser ? (
+                      <>
+                        <img src={currentUser.avatar} alt={currentUser.name} className="w-10 h-10 rounded-full" />
+                        <div className="hidden sm:block">
+                          <p className="font-semibold text-sm">{currentUser.name}</p>
+                          <p className="text-xs text-gray-500">{currentUser.role === 'admin' ? 'Administrador' : 'Estudiante'}</p>
+                        </div>
+                        <button
+                          onClick={async () => {
+                            await signOut(auth);
+                            setCurrentUser(null);
+                            setCurrentView('home');
+                            setCart([]);
+                          }}
+                          className="text-gray-600 hover:text-red-600 transition-all"
+                          title="Cerrar sesión"
+                        >
+                          <LogOut size={20} />
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          onClick={handleGoogleLogin}
+                          className="px-4 py-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all font-semibold"
+                        >
+                          Iniciar Sesión
+                        </button>
+                        <button
+                          onClick={handleRegister}
+                          className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all font-semibold"
+                        >
+                          Registrarse
+                        </button>
+                      </>
+                    )}
+                  </div>
+                    <img src={currentUser?.avatar} alt={currentUser?.name} className="w-10 h-10 rounded-full" />
                     <div className="hidden sm:block">
-                      <p className="font-semibold text-sm">{currentUser.name}</p>
-                      <p className="text-xs text-gray-500">{currentUser.role === 'admin' ? 'Administrador' : 'Estudiante'}</p>
+                      <p className="font-semibold text-sm">{currentUser?.name}</p>
+                      <p className="text-xs text-gray-500">{currentUser?.role === 'admin' ? 'Administrador' : 'Estudiante'}</p>
                     </div>
                     <button
                       onClick={async () => {
@@ -922,7 +1046,7 @@ const handleGoogleLogin = async () => {
 
               {showMobileMenu && (
                 <div className="lg:hidden border-t py-4 space-y-2">
-                  {currentUser.role === 'admin' ? (
+                  {currentUser?.role === 'admin' ? (
                     <>
                       <button
                         onClick={() => {
@@ -976,9 +1100,10 @@ const handleGoogleLogin = async () => {
                   )}
                 </div>
               )}
-            </div>
-          </nav>
-
+              
+              </nav>
+            
+              
           <main>
             {currentView === 'marketplace' && <MarketplaceView />}
             {currentView === 'cart' && <CartView />}
@@ -1030,6 +1155,7 @@ const handleGoogleLogin = async () => {
           </footer>
         </>
       )}
+      <LoginModal />
     </div>
   );
 };
