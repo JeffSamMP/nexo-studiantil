@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingCart, User, Search, Heart, Star, Upload, LogOut, Menu, X, DollarSign, Check, Clock, Package } from 'lucide-react';
+import { ShoppingCart, User, Search, Heart, Star, Upload, X, DollarSign, Check, Clock, Package } from 'lucide-react';
 import { signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
 import { auth, googleProvider, db } from './firebase/config';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { getProducts, getPendingProducts, createProduct, approveProduct, deleteProduct } from './firebase/products';
+import { doc, getDoc, setDoc, collection, addDoc, getDocs } from 'firebase/firestore';
+
 
 const NexoStudiantil = () => {
   const [currentUser, setCurrentUser] = useState(null);
@@ -13,7 +15,6 @@ const NexoStudiantil = () => {
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [priceFilter, setPriceFilter] = useState('all');
   const [selectedProduct, setSelectedProduct] = useState(null);
-  const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [orders, setOrders] = useState([]);
   const [pendingProducts, setPendingProducts] = useState([]);
 
@@ -30,95 +31,24 @@ const NexoStudiantil = () => {
     { id: 'music', name: 'Música', icon: '🎵' }
   ];
 
-  useEffect(() => {
-    const mockProducts = [
-      {
-        id: 1,
-        title: 'Logo Moderno Minimalista',
-        description: 'Diseño de logo profesional con concepto minimalista. Incluye versiones en color y blanco/negro.',
-        price: 45,
-        category: 'design',
-        seller: 'María González',
-        sellerId: 'seller1',
-        rating: 4.8,
-        reviews: 23,
-        image: 'https://images.unsplash.com/photo-1626785774573-4b799315345d?w=400&h=300&fit=crop',
-        status: 'approved',
-        sales: 45
-      },
-      {
-        id: 2,
-        title: 'Ilustración Digital Personalizada',
-        description: 'Ilustración única en estilo cartoon/anime según tus especificaciones.',
-        price: 60,
-        category: 'illustration',
-        seller: 'Carlos Ruiz',
-        sellerId: 'seller2',
-        rating: 4.9,
-        reviews: 31,
-        image: 'https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=400&h=300&fit=crop',
-        status: 'approved',
-        sales: 67
-      },
-      {
-        id: 3,
-        title: 'App Móvil React Native',
-        description: 'Desarrollo de aplicación móvil cross-platform con React Native. UI/UX incluido.',
-        price: 250,
-        category: 'software',
-        seller: 'Ana Martínez',
-        sellerId: 'seller3',
-        rating: 5.0,
-        reviews: 12,
-        image: 'https://images.unsplash.com/photo-1512941937669-90a1b58e7e9c?w=400&h=300&fit=crop',
-        status: 'approved',
-        sales: 28
-      },
-      {
-        id: 4,
-        title: 'Sesión Fotográfica Profesional',
-        description: 'Sesión de fotos de producto o retrato. Incluye 20 fotos editadas en alta resolución.',
-        price: 80,
-        category: 'photography',
-        seller: 'Luis Fernández',
-        sellerId: 'seller4',
-        rating: 4.7,
-        reviews: 19,
-        image: 'https://images.unsplash.com/photo-1452587925148-ce544e77e70d?w=400&h=300&fit=crop',
-        status: 'approved',
-        sales: 34
-      },
-      {
-        id: 5,
-        title: 'Video Promocional Animado',
-        description: 'Video animado de 30-60 segundos para redes sociales o presentaciones.',
-        price: 120,
-        category: 'video',
-        seller: 'Sofía López',
-        sellerId: 'seller5',
-        rating: 4.9,
-        reviews: 15,
-        image: 'https://images.unsplash.com/photo-1574717024653-61fd2cf4d44d?w=400&h=300&fit=crop',
-        status: 'approved',
-        sales: 41
-      },
-      {
-        id: 6,
-        title: 'Composición Musical Original',
-        description: 'Música original para proyectos, videojuegos o contenido multimedia.',
-        price: 95,
-        category: 'music',
-        seller: 'Diego Torres',
-        sellerId: 'seller6',
-        rating: 4.8,
-        reviews: 8,
-        image: 'https://images.unsplash.com/photo-1511379938547-c1f69419868d?w=400&h=300&fit=crop',
-        status: 'approved',
-        sales: 22
-      }
-    ];
-    setProducts(mockProducts);
-  }, []);
+useEffect(() => {
+  const initProducts = async () => {
+    await seedInitialProducts();
+    await loadProducts();
+  };
+  initProducts();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, []);
+
+const loadProducts = async () => {
+  const productsData = await getProducts();
+  setProducts(productsData);
+};
+
+const loadPendingProducts = async () => {
+  const pendingData = await getPendingProducts();
+  setPendingProducts(pendingData);
+};
 
   useEffect(() => {
   const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -143,6 +73,126 @@ const NexoStudiantil = () => {
 
   return () => unsubscribe();
 }, []);
+
+const seedInitialProducts = async () => {
+  try {
+    console.log('🔥 Verificando productos existentes...');
+    
+    // Verificar si ya hay productos aprobados
+    const querySnapshot = await getDocs(collection(db, 'products'));
+    const existingProducts = [];
+    
+    querySnapshot.forEach((doc) => {
+      const data = doc.data();
+      if (data.status === 'approved') {
+        existingProducts.push(doc.id);
+      }
+    });
+    
+    console.log('📦 Productos existentes:', existingProducts.length);
+    
+    if (existingProducts.length > 0) {
+      console.log('⚠️ Ya hay productos aprobados, no se crearán duplicados');
+      return; // DETIENE LA FUNCIÓN AQUÍ
+    }
+
+    console.log('✅ No hay productos, creando iniciales...');
+    
+    const initialProducts = [
+      {
+        title: 'Logo Moderno Minimalista',
+        description: 'Diseño de logo profesional con concepto minimalista. Incluye versiones en color y blanco/negro.',
+        price: 45,
+        category: 'design',
+        seller: 'María González',
+        sellerId: 'demo1',
+        sellerEmail: 'maria@example.com',
+        rating: 4.8,
+        reviews: 23,
+        image: 'https://images.unsplash.com/photo-1626785774573-4b799315345d?w=400&h=300&fit=crop',
+        sales: 45
+      },
+      {
+        title: 'Ilustración Digital Personalizada',
+        description: 'Ilustración única en estilo cartoon/anime según tus especificaciones.',
+        price: 60,
+        category: 'illustration',
+        seller: 'Carlos Ruiz',
+        sellerId: 'demo2',
+        sellerEmail: 'carlos@example.com',
+        rating: 4.9,
+        reviews: 31,
+        image: 'https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=400&h=300&fit=crop',
+        sales: 67
+      },
+      {
+        title: 'App Móvil React Native',
+        description: 'Desarrollo de aplicación móvil cross-platform con React Native. UI/UX incluido.',
+        price: 250,
+        category: 'software',
+        seller: 'Ana Martínez',
+        sellerId: 'demo3',
+        sellerEmail: 'ana@example.com',
+        rating: 5.0,
+        reviews: 12,
+        image: 'https://images.unsplash.com/photo-1512941937669-90a1b58e7e9c?w=400&h=300&fit=crop',
+        sales: 28
+      },
+      {
+        title: 'Sesión Fotográfica Profesional',
+        description: 'Sesión de fotos de producto o retrato. Incluye 20 fotos editadas en alta resolución.',
+        price: 80,
+        category: 'photography',
+        seller: 'Luis Fernández',
+        sellerId: 'demo4',
+        sellerEmail: 'luis@example.com',
+        rating: 4.7,
+        reviews: 19,
+        image: 'https://images.unsplash.com/photo-1452587925148-ce544e77e70d?w=400&h=300&fit=crop',
+        sales: 34
+      },
+      {
+        title: 'Video Promocional Animado',
+        description: 'Video animado de 30-60 segundos para redes sociales o presentaciones.',
+        price: 120,
+        category: 'video',
+        seller: 'Sofía López',
+        sellerId: 'demo5',
+        sellerEmail: 'sofia@example.com',
+        rating: 4.9,
+        reviews: 15,
+        image: 'https://images.unsplash.com/photo-1574717024653-61fd2cf4d44d?w=400&h=300&fit=crop',
+        sales: 41
+      },
+      {
+        title: 'Composición Musical Original',
+        description: 'Música original para proyectos, videojuegos o contenido multimedia.',
+        price: 95,
+        category: 'music',
+        seller: 'Diego Torres',
+        sellerId: 'demo6',
+        sellerEmail: 'diego@example.com',
+        rating: 4.8,
+        reviews: 8,
+        image: 'https://images.unsplash.com/photo-1511379938547-c1f69419868d?w=400&h=300&fit=crop',
+        sales: 22
+      }
+    ];
+
+    for (const product of initialProducts) {
+      await addDoc(collection(db, 'products'), {
+        ...product,
+        status: 'approved',
+        createdAt: new Date().toISOString()
+      });
+    }
+
+    console.log('✅ 6 productos iniciales creados exitosamente');
+    await loadProducts();
+  } catch (error) {
+    console.error('❌ Error al poblar productos:', error);
+  }
+};
 
 const handleRegister = async () => {
   try {
@@ -270,33 +320,50 @@ const requireLogin = (action) => {
     setCurrentView('orders');
   };
 
-  const handleProductSubmit = (productData) => {
+  const handleProductSubmit = async (productData) => {
+  try {
     const newProduct = {
       ...productData,
-      id: Date.now(),
       seller: currentUser.name,
       sellerId: currentUser.id,
-      rating: 0,
-      reviews: 0,
-      status: 'pending',
-      sales: 0
+      sellerEmail: currentUser.email
     };
-    setPendingProducts([...pendingProducts, newProduct]);
-    alert('Producto enviado para revisión. El administrador lo aprobará pronto.');
+    
+    await createProduct(newProduct);
+    alert('¡Producto enviado para revisión! El administrador lo aprobará pronto.');
     setCurrentView('marketplace');
-  };
+  } catch (error) {
+    console.error('Error al publicar producto:', error);
+    alert('Error al publicar el producto. Intenta de nuevo.');
+  }
+};
 
-  const approveProduct = (productId) => {
-    const product = pendingProducts.find(p => p.id === productId);
-    if (product) {
-      setProducts([...products, { ...product, status: 'approved' }]);
-      setPendingProducts(pendingProducts.filter(p => p.id !== productId));
+  const handleApproveProduct = async (productId) => {
+  try {
+    const success = await approveProduct(productId);
+    if (success) {
+      alert('Producto aprobado exitosamente');
+      await loadProducts();
+      await loadPendingProducts();
     }
-  };
+  } catch (error) {
+    console.error('Error al aprobar producto:', error);
+    alert('Error al aprobar el producto');
+  }
+};
 
-  const rejectProduct = (productId) => {
-    setPendingProducts(pendingProducts.filter(p => p.id !== productId));
-  };
+  const handleRejectProduct = async (productId) => {
+  try {
+    const success = await deleteProduct(productId);
+    if (success) {
+      alert('Producto rechazado');
+      await loadPendingProducts();
+    }
+  } catch (error) {
+    console.error('Error al rechazar producto:', error);
+    alert('Error al rechazar el producto');
+  }
+};
 
   const filteredProducts = products.filter(product => {
     const matchesSearch = product.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -706,7 +773,12 @@ const requireLogin = (action) => {
     </div>
   );
 
-  const AdminView = () => (
+const AdminView = () => {
+  React.useEffect(() => {
+    loadPendingProducts();
+  }, []);
+
+  return (
     <div className="max-w-7xl mx-auto px-4 py-8">
       <h2 className="text-3xl font-bold mb-8">Panel de Administración</h2>
       
@@ -760,14 +832,14 @@ const requireLogin = (action) => {
                   </div>
                   <div className="flex flex-col gap-3">
                     <button
-                      onClick={() => approveProduct(product.id)}
+                      onClick={() => handleApproveProduct(product.id)}
                       className="bg-green-500 text-white px-6 py-3 rounded-lg hover:bg-green-600 transition-all flex items-center gap-2"
                     >
                       <Check size={20} />
                       Aprobar
                     </button>
                     <button
-                      onClick={() => rejectProduct(product.id)}
+                      onClick={() => handleRejectProduct(product.id)}
                       className="bg-red-500 text-white px-6 py-3 rounded-lg hover:bg-red-600 transition-all flex items-center gap-2"
                     >
                       <X size={20} />
@@ -824,6 +896,7 @@ const requireLogin = (action) => {
       </div>
     </div>
   );
+};
 
 const LoginModal = () => {
   if (!showLoginModal) return null;
@@ -848,7 +921,7 @@ const LoginModal = () => {
           <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <User className="text-indigo-600" size={32} />
           </div>
-          <h2 className="text-2xl font-bold mb-2">¡Necesitas una cuenta!/</h2>
+          <h2 className="text-2xl font-bold mb-2">¡Necesitas una cuenta!</h2>
           <p className="text-gray-600">Debes {getModalText()}</p>
         </div>
         
@@ -886,278 +959,202 @@ const LoginModal = () => {
     </div>
   );
 };
-  
- return (
+
+return (
   <div className="min-h-screen bg-gray-50">
-    {currentView === 'home' ? (
-      <HomePage />
-    ) : (
-      <>
-        <nav className="bg-white shadow-lg sticky top-0 z-40">
-            <div className="max-w-7xl mx-auto px-4">
-              <div className="flex justify-between items-center h-16">
-                <div className="flex items-center gap-8">
-                  <h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent cursor-pointer"
-                      onClick={() => setCurrentView(currentUser?.role === 'admin' ? 'admin' : 'marketplace')}>
-                    NEXO STUDIANTIL
-                  </h1>
-
-                  <button
-                    onClick={() => setCurrentView('home')}
-                    className="hidden md:block px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-all"
-                  >
-                    Inicio
-                  </button>
-                  
-                  <button
-                    className="lg:hidden"
-                    onClick={() => setShowMobileMenu(!showMobileMenu)}
-                  >
-                    {showMobileMenu ? <X size={24} /> : <Menu size={24} />}
-                  </button>
-
-                  <div className="hidden lg:flex gap-4">
-                    {currentUser?.role === 'admin' ? (
-                      <>
-                        <button
-                          onClick={() => setCurrentView('admin')}
-                          className={`px-4 py-2 rounded-lg font-semibold transition-all ${
-                            currentView === 'admin' ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-100'
-                          }`}
-                        >
-                          Panel Admin
-                        </button>
-                        <button
-                          onClick={() => setCurrentView('marketplace')}
-                          className={`px-4 py-2 rounded-lg font-semibold transition-all ${
-                            currentView === 'marketplace' ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-100'
-                          }`}
-                        >
-                          Ver Marketplace
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <button
-                          onClick={() => setCurrentView('marketplace')}
-                          className={`px-4 py-2 rounded-lg font-semibold transition-all ${
-                            currentView === 'marketplace' ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-100'
-                          }`}
-                        >
-                          Explorar
-                        </button>
-                        <button
-                          onClick={() => {
-                            if (requireLogin('upload')) {
-                              setCurrentView('upload');
-                            }
-                          }}
-                          className="px-4 py-2 rounded-lg font-semibold transition-all flex items-center gap-2 text-gray-700 hover:bg-gray-100"
-                        >
-                          <Upload size={18} />
-                          Publicar Trabajo
-                        </button>
-                        <button
-                          onClick={() => setCurrentView('orders')}
-                          className={`px-4 py-2 rounded-lg font-semibold transition-all ${
-                            currentView === 'orders' ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-100'
-                          }`}
-                        >
-                          Mis Pedidos
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-4">
-                  {currentUser && currentUser.role !== 'admin' && (
-                      <button
-                        onClick={() => setCurrentView('cart')}
-                        className="relative p-2 hover:bg-gray-100 rounded-lg transition-all"
-                      >
-                      <ShoppingCart size={24} />
-                      {cart.length > 0 && (
-                        <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center font-bold">
-                          {cart.length}
-                        </span>
-                      )}
-                    </button>
-                  )}
-                  
-                  <div className="flex items-center gap-3 border-l pl-4">
-                    {currentUser ? (
-                      <>
-                        <img src={currentUser.avatar} alt={currentUser.name} className="w-10 h-10 rounded-full" />
-                        <div className="hidden sm:block">
-                          <p className="font-semibold text-sm">{currentUser.name}</p>
-                          <p className="text-xs text-gray-500">{currentUser.role === 'admin' ? 'Administrador' : 'Estudiante'}</p>
-                        </div>
-                        <button
-                          onClick={async () => {
-                            await signOut(auth);
-                            setCurrentUser(null);
-                            setCurrentView('home');
-                            setCart([]);
-                          }}
-                          className="text-gray-600 hover:text-red-600 transition-all"
-                          title="Cerrar sesión"
-                        >
-                          <LogOut size={20} />
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <button
-                          onClick={handleGoogleLogin}
-                          className="px-4 py-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all font-semibold"
-                        >
-                          Iniciar Sesión
-                        </button>
-                        <button
-                          onClick={handleRegister}
-                          className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all font-semibold"
-                        >
-                          Registrarse
-                        </button>
-                      </>
-                    )}
-                  </div>
-                    <img src={currentUser?.avatar} alt={currentUser?.name} className="w-10 h-10 rounded-full" />
-                    <div className="hidden sm:block">
-                      <p className="font-semibold text-sm">{currentUser?.name}</p>
-                      <p className="text-xs text-gray-500">{currentUser?.role === 'admin' ? 'Administrador' : 'Estudiante'}</p>
-                    </div>
-                    <button
-                      onClick={async () => {
-                                await signOut(auth);
-                                setCurrentUser(null);
-                                setCurrentView('home');
-                                setCart([]);
-                              }}
-                      className="text-gray-600 hover:text-red-600 transition-all"
-                      title="Cerrar sesión"
-                    >
-                      <LogOut size={20} />
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {showMobileMenu && (
-                <div className="lg:hidden border-t py-4 space-y-2">
-                  {currentUser?.role === 'admin' ? (
-                    <>
-                      <button
-                        onClick={() => {
-                          setCurrentView('admin');
-                          setShowMobileMenu(false);
-                        }}
-                        className="w-full text-left px-4 py-3 rounded-lg hover:bg-gray-100"
-                      >
-                        Panel Admin
-                      </button>
-                      <button
-                        onClick={() => {
-                          setCurrentView('marketplace');
-                          setShowMobileMenu(false);
-                        }}
-                        className="w-full text-left px-4 py-3 rounded-lg hover:bg-gray-100"
-                      >
-                        Ver Marketplace
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <button
-                        onClick={() => {
-                          setCurrentView('marketplace');
-                          setShowMobileMenu(false);
-                        }}
-                        className="w-full text-left px-4 py-3 rounded-lg hover:bg-gray-100"
-                      >
-                        Explorar
-                      </button>
-                      <button
-                        onClick={() => {
-                          setCurrentView('upload');
-                          setShowMobileMenu(false);
-                        }}
-                        className="w-full text-left px-4 py-3 rounded-lg hover:bg-gray-100"
-                      >
-                        Publicar Trabajo
-                      </button>
-                      <button
-                        onClick={() => {
-                          setCurrentView('orders');
-                          setShowMobileMenu(false);
-                        }}
-                        className="w-full text-left px-4 py-3 rounded-lg hover:bg-gray-100"
-                      >
-                        Mis Pedidos
-                      </button>
-                    </>
-                  )}
-                </div>
-              )}
-              
-              </nav>
+    {/* Navbar siempre visible */}
+    <nav className="bg-white shadow-lg sticky top-0 z-40">
+      <div className="max-w-7xl mx-auto px-4">
+        <div className="flex justify-between items-center h-16">
+          <div className="flex items-center gap-8">
+            <h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent cursor-pointer"
+                onClick={() => setCurrentView(currentUser?.role === 'admin' ? 'admin' : 'marketplace')}>
+              NEXO STUDIANTIL
+            </h1>
             
-              
-          <main>
-            {currentView === 'marketplace' && <MarketplaceView />}
-            {currentView === 'cart' && <CartView />}
-            {currentView === 'upload' && <UploadProductView />}
-            {currentView === 'orders' && <OrdersView />}
-            {currentView === 'admin' && <AdminView />}
-          </main>
+            <button
+              onClick={() => setCurrentView('home')}
+              className="hidden md:block px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-all"
+            >
+              Inicio
+            </button>
 
-          <footer className="bg-gray-900 text-white py-12 mt-16">
-            <div className="max-w-7xl mx-auto px-4">
-              <div className="grid md:grid-cols-4 gap-8 mb-8">
-                <div>
-                  <h3 className="text-xl font-bold mb-4 bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
-                    NEXO STUDIANTIL
-                  </h3>
-                  <p className="text-gray-400">
-                    Conectando talento universitario con oportunidades reales.
-                  </p>
-                </div>
-                <div>
-                  <h4 className="font-semibold mb-3">Plataforma</h4>
-                  <ul className="space-y-2 text-gray-400">
-                    <li className="hover:text-white cursor-pointer transition-all">Cómo funciona</li>
-                    <li className="hover:text-white cursor-pointer transition-all">Categorías</li>
-                    <li className="hover:text-white cursor-pointer transition-all">Precios</li>
-                  </ul>
-                </div>
-                <div>
-                  <h4 className="font-semibold mb-3">Soporte</h4>
-                  <ul className="space-y-2 text-gray-400">
-                    <li className="hover:text-white cursor-pointer transition-all">Centro de ayuda</li>
-                    <li className="hover:text-white cursor-pointer transition-all">Términos de uso</li>
-                    <li className="hover:text-white cursor-pointer transition-all">Privacidad</li>
-                  </ul>
-                </div>
-                <div>
-                  <h4 className="font-semibold mb-3">Contacto</h4>
-                  <ul className="space-y-2 text-gray-400">
-                    <li>info@nexostudiantil.com</li>
-                    <li>+51 999 999 999</li>
-                    <li>Lima, Perú</li>
-                  </ul>
-                </div>
+            {currentUser && (
+              <div className="hidden lg:flex gap-4">
+                {currentUser.role === 'admin' ? (
+                  <>
+                    <button
+                      onClick={() => setCurrentView('admin')}
+                      className={`px-4 py-2 rounded-lg font-semibold transition-all ${
+                        currentView === 'admin' ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-100'
+                      }`}
+                    >
+                      Panel Admin
+                    </button>
+                    <button
+                      onClick={() => setCurrentView('marketplace')}
+                      className={`px-4 py-2 rounded-lg font-semibold transition-all ${
+                        currentView === 'marketplace' ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-100'
+                      }`}
+                    >
+                      Ver Marketplace
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => setCurrentView('marketplace')}
+                      className={`px-4 py-2 rounded-lg font-semibold transition-all ${
+                        currentView === 'marketplace' ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-100'
+                      }`}
+                    >
+                      Explorar
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (requireLogin('upload')) {
+                          setCurrentView('upload');
+                        }
+                      }}
+                      className={`px-4 py-2 rounded-lg font-semibold transition-all flex items-center gap-2 ${
+                        currentView === 'upload' ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-100'
+                      }`}
+                    >
+                      <Upload size={18} />
+                      Publicar
+                    </button>
+                    <button
+                      onClick={() => setCurrentView('orders')}
+                      className={`px-4 py-2 rounded-lg font-semibold transition-all ${
+                        currentView === 'orders' ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-100'
+                      }`}
+                    >
+                      Mis Pedidos
+                    </button>
+                  </>
+                )}
               </div>
-              <div className="border-t border-gray-800 pt-8 text-center text-gray-400">
-                <p>© 2024 Nexo Studiantil. Todos los derechos reservados.</p>
-              </div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-4">
+            {currentUser?.role !== 'admin' && (
+              <button
+                onClick={() => {
+                  if (requireLogin('cart')) {
+                    setCurrentView('cart');
+                  }
+                }}
+                className="relative p-2 hover:bg-gray-100 rounded-lg transition-all"
+              >
+                <ShoppingCart size={24} />
+                {cart.length > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center font-bold">
+                    {cart.length}
+                  </span>
+                )}
+              </button>
+            )}
+            
+            <div className="flex items-center gap-3 border-l pl-4">
+              {currentUser ? (
+                <>
+                  <img src={currentUser.avatar} alt={currentUser.name} className="w-10 h-10 rounded-full" />
+                  <div className="hidden sm:block">
+                    <p className="font-semibold text-sm">{currentUser.name}</p>
+                    <p className="text-xs text-gray-500">{currentUser.role === 'admin' ? 'Administrador' : 'Estudiante'}</p>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      await signOut(auth);
+                      setCurrentUser(null);
+                      setCurrentView('home');
+                      setCart([]);
+                    }}
+                    className="text-gray-600 hover:text-red-600 transition-all"
+                    title="Cerrar sesión"
+                  >
+                    <User size={20} />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={handleGoogleLogin}
+                    className="px-4 py-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all font-semibold"
+                  >
+                    Iniciar Sesión
+                  </button>
+                  <button
+                    onClick={handleRegister}
+                    className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all font-semibold"
+                  >
+                    Registrarse
+                  </button>
+                </>
+              )}
             </div>
-          </footer>
-        </>
-      )}
-      <LoginModal />
-    </div>
-  );
+          </div>
+        </div>
+      </div>
+    </nav>
+
+    {/* Contenido según la vista */}
+    <main>
+      {currentView === 'home' && <HomePage />}
+      {currentView === 'marketplace' && <MarketplaceView />}
+      {currentView === 'cart' && <CartView />}
+      {currentView === 'upload' && <UploadProductView />}
+      {currentView === 'orders' && <OrdersView />}
+      {currentView === 'admin' && <AdminView />}
+    </main>
+
+    {/* Footer siempre visible */}
+    <footer className="bg-gray-900 text-white py-12 mt-16">
+      <div className="max-w-7xl mx-auto px-4">
+        <div className="grid md:grid-cols-4 gap-8 mb-8">
+          <div>
+            <h3 className="text-xl font-bold mb-4 bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
+              NEXO STUDIANTIL
+            </h3>
+            <p className="text-gray-400">
+              Conectando talento universitario con oportunidades reales.
+            </p>
+          </div>
+          <div>
+            <h4 className="font-semibold mb-3">Plataforma</h4>
+            <ul className="space-y-2 text-gray-400">
+              <li className="hover:text-white cursor-pointer transition-all">Cómo funciona</li>
+              <li className="hover:text-white cursor-pointer transition-all">Categorías</li>
+              <li className="hover:text-white cursor-pointer transition-all">Precios</li>
+            </ul>
+          </div>
+          <div>
+            <h4 className="font-semibold mb-3">Soporte</h4>
+            <ul className="space-y-2 text-gray-400">
+              <li className="hover:text-white cursor-pointer transition-all">Centro de ayuda</li>
+              <li className="hover:text-white cursor-pointer transition-all">Términos de uso</li>
+              <li className="hover:text-white cursor-pointer transition-all">Privacidad</li>
+            </ul>
+          </div>
+          <div>
+            <h4 className="font-semibold mb-3">Contacto</h4>
+            <ul className="space-y-2 text-gray-400">
+              <li>info@nexostudiantil.com</li>
+              <li>+51 999 999 999</li>
+              <li>Lima, Perú</li>
+            </ul>
+          </div>
+        </div>
+        <div className="border-t border-gray-800 pt-8 text-center text-gray-400">
+          <p>© 2024 Nexo Studiantil. Todos los derechos reservados.</p>
+        </div>
+      </div>
+    </footer>
+    
+    <LoginModal />
+  </div>
+);
 };
 
 export default NexoStudiantil;
