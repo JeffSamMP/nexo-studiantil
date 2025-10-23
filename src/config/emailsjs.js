@@ -2,11 +2,11 @@ import emailjs from '@emailjs/browser';
 
 // Configuración de EmailJS con tus credenciales
 const EMAILJS_CONFIG = {
-  serviceId: 'service_4hl327h',
-  publicKey: '8WTFO8-0I53X4WD8z',
+  serviceId: process.env.REACT_APP_EMAILJS_SERVICE_ID || 'service_4hl327h',
+  publicKey: process.env.REACT_APP_EMAILJS_PUBLIC_KEY || '8WTFO8-0I53X4WD8z',
   templates: {
-    welcome: 'template_ty8ph61',
-    orderConfirmation: 'template_nf24ug7'
+    welcome: process.env.REACT_APP_EMAILJS_TEMPLATE_WELCOME || 'template_ty8ph61',
+    orderConfirmation: process.env.REACT_APP_EMAILJS_TEMPLATE_ORDER || 'template_nf24ug7'
   }
 };
 
