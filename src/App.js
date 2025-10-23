@@ -50,21 +50,34 @@ const loadPendingProducts = async () => {
   setPendingProducts(pendingData);
 };
 
-  useEffect(() => {
+useEffect(() => {
   const unsubscribe = onAuthStateChanged(auth, async (user) => {
     if (user) {
-      // Obtener datos del usuario desde Firestore
-      const userDoc = await getDoc(doc(db, 'users', user.uid));
-      
-      if (userDoc.exists()) {
-        const userData = userDoc.data();
-        setCurrentUser({
-          id: user.uid,
-          name: user.displayName || userData.name,
-          email: user.email,
-          role: userData.role,
-          avatar: user.photoURL || userData.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.displayName)}&background=6366f1&color=fff`
-        });
+      try {
+        // Obtener datos del usuario desde Firestore
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        
+        if (userDoc.exists()) {
+          const userData = userDoc.data();
+          
+          // Obtener avatar de mejor calidad
+          let avatarUrl = user.photoURL || userData.avatar;
+          if (avatarUrl && avatarUrl.includes('googleusercontent.com')) {
+            avatarUrl = avatarUrl.replace('s96-c', 's400-c');
+          }
+          
+          setCurrentUser({
+            id: user.uid,
+            name: user.displayName || userData.name,
+            email: user.email,
+            role: userData.role,
+            avatar: avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.displayName || userData.name)}&background=6366f1&color=fff`
+          });
+          
+          console.log('✅ Sesión restaurada:', user.displayName);
+        }
+      } catch (error) {
+        console.error('Error al cargar usuario:', error);
       }
     } else {
       setCurrentUser(null);
@@ -203,23 +216,47 @@ const handleRegister = async () => {
     const userDoc = await getDoc(doc(db, 'users', user.uid));
     
     if (userDoc.exists()) {
-      alert('Ya tienes una cuenta. Usa "Ingresar como Estudiante".');
+      alert('Ya tienes una cuenta. Usa "Iniciar Sesión".');
       await signOut(auth);
       return;
     }
     
-    // Determinar rol: admin solo para samirmp123@gmail.com
+    // Determinar rol
     const role = user.email === 'samirmp123@gmail.com' ? 'admin' : 'student';
     
-    // Guardar nuevo usuario en Firestore
+    // Obtener foto de perfil de alta calidad
+    let avatarUrl = user.photoURL;
+    if (avatarUrl) {
+      // Cambiar tamaño de imagen de Google para mejor calidad
+      avatarUrl = avatarUrl.replace('s96-c', 's400-c');
+    }
+    
+    console.log('📸 Avatar URL:', avatarUrl);
+    
+    // Guardar nuevo usuario
     await setDoc(doc(db, 'users', user.uid), {
       name: user.displayName,
       email: user.email,
       role: role,
-      avatar: user.photoURL,
+      avatar: avatarUrl,
       createdAt: new Date().toISOString()
     });
-    
+   await setDoc(doc(db, 'users', user.uid), {
+  name: user.displayName,
+  email: user.email,
+  role: role,
+  avatar: avatarUrl,
+  createdAt: new Date().toISOString()
+});
+
+// Enviar email de bienvenida
+try {
+  const { sendWelcomeEmail } = await import('./config/emailjs');
+  await sendWelcomeEmail(user.displayName, user.email, role);
+} catch (error) {
+  console.error('Error al enviar email de bienvenida:', error);
+}
+
     setCurrentUser({
       id: user.uid,
       name: user.displayName,
@@ -261,13 +298,21 @@ const handleGoogleLogin = async () => {
     // Usuario ya registrado - obtener su rol
     const userData = userDoc.data();
     
-    setCurrentUser({
-      id: user.uid,
-      name: user.displayName || userData.name,
-      email: user.email,
-      role: userData.role,
-      avatar: user.photoURL || userData.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.displayName)}&background=6366f1&color=fff`
-    });
+// Obtener avatar de mejor calidad
+let avatarUrl = user.photoURL || userData.avatar;
+if (avatarUrl && avatarUrl.includes('googleusercontent.com')) {
+  avatarUrl = avatarUrl.replace('s96-c', 's400-c');
+}
+
+setCurrentUser({
+  id: user.uid,
+  name: user.displayName || userData.name,
+  email: user.email,
+  role: userData.role,
+  avatar: avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.displayName || userData.name)}&background=6366f1&color=fff`
+});
+
+console.log('👤 Usuario cargado:', user.displayName, 'Avatar:', avatarUrl);
     
     // Redirigir según rol
     if (userData.role === 'admin') {
@@ -305,20 +350,31 @@ const requireLogin = (action) => {
     setCart(cart.filter(item => item.id !== productId));
   };
 
-  const handleCheckout = () => {
-    const newOrder = {
-      id: `ORD-${Date.now()}`,
-      items: [...cart],
-      total: cart.reduce((sum, item) => sum + item.price, 0),
-      status: 'pending',
-      date: new Date().toLocaleDateString(),
-      buyer: currentUser.name
-    };
-    setOrders([...orders, newOrder]);
-    setCart([]);
-    alert('¡Pedido realizado con éxito! Procederemos con el pago.');
-    setCurrentView('orders');
+  const handleCheckout = async () => {
+  const newOrder = {
+    id: `ORD-${Date.now()}`,
+    items: [...cart],
+    total: cart.reduce((sum, item) => sum + item.price, 0),
+    status: 'pending',
+    date: new Date().toLocaleDateString(),
+    buyer: currentUser.name
   };
+  
+  setOrders([...orders, newOrder]);
+  setCart([]);
+  
+  // Enviar email de confirmación
+  try {
+    const { sendOrderConfirmationEmail } = await import('./config/emailjs');
+    await sendOrderConfirmationEmail(currentUser.name, currentUser.email, newOrder);
+    alert('¡Pedido realizado con éxito! Revisa tu email para la confirmación.');
+  } catch (error) {
+    console.error('Error al enviar email:', error);
+    alert('¡Pedido realizado con éxito! (No se pudo enviar el email)');
+  }
+  
+  setCurrentView('orders');
+};
 
   const handleProductSubmit = async (productData) => {
   try {
@@ -649,81 +705,184 @@ const requireLogin = (action) => {
     </div>
   );
 
-  const UploadProductView = () => {
-    const [formData, setFormData] = useState({
-      title: '',
-      description: '',
-      price: '',
-      category: 'design',
-      image: 'https://images.unsplash.com/photo-1561070791-2526d30994b5?w=400&h=300&fit=crop'
-    });
+const UploadProductView = () => {
+  const [formData, setFormData] = useState({
+    title: '',
+    description: '',
+    price: '',
+    category: 'design',
+    image: ''
+  });
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
+  const [uploading, setUploading] = useState(false);
 
-    return (
-      <div className="max-w-3xl mx-auto px-4 py-8">
-        <h2 className="text-3xl font-bold mb-8">Publicar Nuevo Trabajo</h2>
-        <div className="bg-white p-8 rounded-xl shadow-lg">
-          <div className="mb-6">
-            <label className="block font-semibold mb-2">Título del Trabajo</label>
-            <input
-              type="text"
-              value={formData.title}
-              onChange={(e) => setFormData({...formData, title: e.target.value})}
-              className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-              placeholder="Ej: Logo Moderno Minimalista"
-            />
-          </div>
-          <div className="mb-6">
-            <label className="block font-semibold mb-2">Descripción</label>
-            <textarea
-              value={formData.description}
-              onChange={(e) => setFormData({...formData, description: e.target.value})}
-              className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none h-32"
-              placeholder="Describe tu trabajo en detalle..."
-            />
-          </div>
-          <div className="grid md:grid-cols-2 gap-6 mb-6">
-            <div>
-              <label className="block font-semibold mb-2">Precio ($)</label>
-              <input
-                type="number"
-                value={formData.price}
-                onChange={(e) => setFormData({...formData, price: e.target.value})}
-                className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                placeholder="45"
-              />
-            </div>
-            <div>
-              <label className="block font-semibold mb-2">Categoría</label>
-              <select
-                value={formData.category}
-                onChange={(e) => setFormData({...formData, category: e.target.value})}
-                className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-              >
-                {categories.filter(c => c.id !== 'all').map(cat => (
-                  <option key={cat.id} value={cat.id}>{cat.name}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <div className="mb-6">
-            <label className="block font-semibold mb-2">Imagen de Portada</label>
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-indigo-500 transition-all cursor-pointer">
-              <Upload className="mx-auto text-gray-400 mb-2" size={48} />
-              <p className="text-gray-600">Click para subir imagen o arrastra aquí</p>
-              <p className="text-sm text-gray-500 mt-2">PNG, JPG hasta 5MB</p>
-            </div>
-          </div>
-          <button
-            onClick={() => handleProductSubmit(formData)}
-            className="w-full bg-indigo-600 text-white py-4 rounded-xl font-semibold hover:bg-indigo-700 transition-all"
-          >
-            Publicar Trabajo
-          </button>
-        </div>
-      </div>
-    );
+  const handleImageChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setImageFile(file);
+      // Crear preview
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result);
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    
+    if (!formData.title || !formData.description || !formData.price) {
+      alert('Por favor completa todos los campos');
+      return;
+    }
+
+    if (!imageFile) {
+      alert('Por favor selecciona una imagen');
+      return;
+    }
+
+    setUploading(true);
+
+    try {
+      // Importar función de upload
+      const { uploadProductImage } = await import('./firebase/storage');
+      
+      // Subir imagen a Storage
+      const imageUrl = await uploadProductImage(imageFile, currentUser.id);
+      
+      // Crear producto con la URL de la imagen
+      const productData = {
+        ...formData,
+        image: imageUrl,
+        price: parseFloat(formData.price)
+      };
+
+      await handleProductSubmit(productData);
+      
+      // Limpiar formulario
+      setFormData({
+        title: '',
+        description: '',
+        price: '',
+        category: 'design',
+        image: ''
+      });
+      setImageFile(null);
+      setImagePreview(null);
+    } catch (error) {
+      console.error('Error al publicar:', error);
+      alert('Error al subir la imagen: ' + error.message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div className="max-w-3xl mx-auto px-4 py-8">
+      <h2 className="text-3xl font-bold mb-8">Publicar Nuevo Trabajo</h2>
+      <form onSubmit={handleSubmit} className="bg-white p-8 rounded-xl shadow-lg">
+        <div className="mb-6">
+          <label className="block font-semibold mb-2">Título del Trabajo</label>
+          <input
+            type="text"
+            value={formData.title}
+            onChange={(e) => setFormData({...formData, title: e.target.value})}
+            className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+            placeholder="Ej: Logo Moderno Minimalista"
+            required
+          />
+        </div>
+        
+        <div className="mb-6">
+          <label className="block font-semibold mb-2">Descripción</label>
+          <textarea
+            value={formData.description}
+            onChange={(e) => setFormData({...formData, description: e.target.value})}
+            className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none h-32"
+            placeholder="Describe tu trabajo en detalle..."
+            required
+          />
+        </div>
+        
+        <div className="grid md:grid-cols-2 gap-6 mb-6">
+          <div>
+            <label className="block font-semibold mb-2">Precio ($)</label>
+            <input
+              type="number"
+              value={formData.price}
+              onChange={(e) => setFormData({...formData, price: e.target.value})}
+              className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+              placeholder="45"
+              min="1"
+              required
+            />
+          </div>
+          <div>
+            <label className="block font-semibold mb-2">Categoría</label>
+            <select
+              value={formData.category}
+              onChange={(e) => setFormData({...formData, category: e.target.value})}
+              className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+            >
+              {categories.filter(c => c.id !== 'all').map(cat => (
+                <option key={cat.id} value={cat.id}>{cat.name}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        
+        <div className="mb-6">
+          <label className="block font-semibold mb-2">Imagen de Portada</label>
+          
+          {imagePreview ? (
+            <div className="relative">
+              <img 
+                src={imagePreview} 
+                alt="Preview" 
+                className="w-full h-64 object-cover rounded-lg mb-4"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setImageFile(null);
+                  setImagePreview(null);
+                }}
+                className="absolute top-2 right-2 bg-red-500 text-white p-2 rounded-full hover:bg-red-600"
+              >
+                <X size={20} />
+              </button>
+            </div>
+          ) : (
+            <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-indigo-500 transition-all">
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleImageChange}
+                className="hidden"
+                id="image-upload"
+              />
+              <label htmlFor="image-upload" className="cursor-pointer">
+                <Upload className="mx-auto text-gray-400 mb-2" size={48} />
+                <p className="text-gray-600 font-semibold">Click para subir imagen</p>
+                <p className="text-sm text-gray-500 mt-2">PNG, JPG hasta 5MB</p>
+              </label>
+            </div>
+          )}
+        </div>
+        
+        <button
+          type="submit"
+          disabled={uploading}
+          className="w-full bg-indigo-600 text-white py-4 rounded-xl font-semibold hover:bg-indigo-700 transition-all disabled:bg-gray-400 disabled:cursor-not-allowed"
+        >
+          {uploading ? 'Subiendo imagen...' : 'Publicar Trabajo'}
+        </button>
+      </form>
+    </div>
+  );
+};
   const OrdersView = () => (
     <div className="max-w-5xl mx-auto px-4 py-8">
       <h2 className="text-3xl font-bold mb-8">Mis Pedidos</h2>
@@ -1059,8 +1218,26 @@ return (
             <div className="flex items-center gap-3 border-l pl-4">
               {currentUser ? (
                 <>
-                  <img src={currentUser.avatar} alt={currentUser.name} className="w-10 h-10 rounded-full" />
-                  <div className="hidden sm:block">
+                  {(() => {
+  console.log('🖼️ Avatar URL:', currentUser.avatar);
+  console.log('👤 Nombre:', currentUser.name);
+  return (
+    <img 
+      src={currentUser.avatar} 
+      alt={currentUser.name} 
+      className="w-10 h-10 rounded-full object-cover border-2 border-indigo-200"
+      onError={(e) => {
+        console.log('❌ Error cargando avatar, URL:', currentUser.avatar);
+        console.log('🔄 Cambiando a fallback con iniciales');
+        e.target.onerror = null; // Prevenir loop infinito
+        e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(currentUser.name)}&background=6366f1&color=fff`;
+      }}
+      onLoad={() => {
+        console.log('✅ Avatar cargado exitosamente desde:', currentUser.avatar);
+      }}
+    />
+  );
+})()}           <div className="hidden sm:block">
                     <p className="font-semibold text-sm">{currentUser.name}</p>
                     <p className="text-xs text-gray-500">{currentUser.role === 'admin' ? 'Administrador' : 'Estudiante'}</p>
                   </div>

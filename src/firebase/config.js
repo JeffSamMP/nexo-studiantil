@@ -23,5 +23,8 @@ export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({
   prompt: 'select_account'
 });
+// Solicitar acceso a la foto de perfil
+googleProvider.addScope('profile');
+googleProvider.addScope('email');
 
 export default app;
