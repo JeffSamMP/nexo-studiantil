@@ -1,5 +1,6 @@
 import emailjs from '@emailjs/browser';
 
+
 // Configuración de EmailJS con tus credenciales
 const EMAILJS_CONFIG = {
   serviceId: process.env.REACT_APP_EMAILJS_SERVICE_ID || 'service_4hl327h',

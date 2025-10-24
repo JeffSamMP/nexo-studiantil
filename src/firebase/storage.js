@@ -1,7 +1,7 @@
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from './config';
 
-// Subir imagen y obtener URL
+// Subir imagen de producto y obtener URL
 export const uploadProductImage = async (file, userId) => {
   try {
     // Validar tipo de archivo
@@ -14,18 +14,20 @@ export const uploadProductImage = async (file, userId) => {
       throw new Error('La imagen no debe superar 5MB');
     }
 
+    console.log('📤 Subiendo imagen:', file.name);
+
     // Crear nombre único para el archivo
     const timestamp = Date.now();
-    const fileName = `${userId}_${timestamp}_${file.name}`;
+    const extension = file.name.split('.').pop();
+    const fileName = `${userId}_${timestamp}.${extension}`;
     const storageRef = ref(storage, `products/${fileName}`);
 
     // Subir archivo
-    console.log('📤 Subiendo imagen...');
     const snapshot = await uploadBytes(storageRef, file);
     
     // Obtener URL de descarga
     const downloadURL = await getDownloadURL(snapshot.ref);
-    console.log('✅ Imagen subida:', downloadURL);
+    console.log('✅ Imagen subida exitosamente');
     
     return downloadURL;
   } catch (error) {
@@ -45,15 +47,17 @@ export const uploadProfileImage = async (file, userId) => {
       throw new Error('La imagen no debe superar 2MB');
     }
 
-    const fileName = `profile_${userId}_${Date.now()}.${file.name.split('.').pop()}`;
+    const extension = file.name.split('.').pop();
+    const fileName = `profile_${userId}_${Date.now()}.${extension}`;
     const storageRef = ref(storage, `profiles/${fileName}`);
 
     const snapshot = await uploadBytes(storageRef, file);
     const downloadURL = await getDownloadURL(snapshot.ref);
     
+    console.log('✅ Foto de perfil subida');
     return downloadURL;
   } catch (error) {
-    console.error('Error al subir imagen de perfil:', error);
+    console.error('❌ Error al subir foto de perfil:', error);
     throw error;
   }
 };

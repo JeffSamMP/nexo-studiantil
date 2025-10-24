@@ -4,6 +4,11 @@ import { signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
 import { auth, googleProvider, db } from './firebase/config';
 import { getProducts, getPendingProducts, createProduct, approveProduct, deleteProduct } from './firebase/products';
 import { doc, getDoc, setDoc, collection, addDoc, getDocs } from 'firebase/firestore';
+import { Elements } from '@stripe/react-stripe-js';
+import stripePromise from './config/stripe';
+import CheckoutForm from './components/CheckoutForm';
+import { sendWelcomeEmail, sendOrderConfirmationEmail } from './config/emailjs';
+
 
 
 const NexoStudiantil = () => {
@@ -251,7 +256,6 @@ const handleRegister = async () => {
 
 // Enviar email de bienvenida
 try {
-  const { sendWelcomeEmail } = await import('./config/emailjs');
   await sendWelcomeEmail(user.displayName, user.email, role);
 } catch (error) {
   console.error('Error al enviar email de bienvenida:', error);
@@ -652,9 +656,41 @@ const requireLogin = (action) => {
     </div>
   );
 
-  const CartView = () => (
+  const CartView = () => {
+  const [showCheckout, setShowCheckout] = useState(false);
+
+  const handlePaymentSuccess = async (paymentData) => {
+    console.log('✅ Pago exitoso:', paymentData);
+    
+    const newOrder = {
+      id: `ORD-${Date.now()}`,
+      items: [...cart],
+      total: cart.reduce((sum, item) => sum + item.price, 0),
+      status: 'paid',
+      date: new Date().toLocaleDateString(),
+      buyer: currentUser.name,
+      paymentId: paymentData.paymentMethodId
+    };
+    
+    setOrders([...orders, newOrder]);
+    setCart([]);
+    setShowCheckout(false);
+    
+    // Enviar email de confirmación
+    try {
+      await sendOrderConfirmationEmail(currentUser.name, currentUser.email, newOrder);
+    } catch (error) {
+      console.error('Error al enviar email:', error);
+    }
+    
+    alert('¡Pago exitoso! Tu pedido ha sido confirmado. Revisa tu email.');
+    setCurrentView('orders');
+  };
+
+  return (
     <div className="max-w-4xl mx-auto px-4 py-8">
       <h2 className="text-3xl font-bold mb-8">Carrito de Compras</h2>
+      
       {cart.length === 0 ? (
         <div className="text-center py-16 bg-white rounded-xl">
           <ShoppingCart size={64} className="mx-auto text-gray-300 mb-4" />
@@ -665,6 +701,28 @@ const requireLogin = (action) => {
           >
             Explorar Productos
           </button>
+        </div>
+      ) : showCheckout ? (
+        <div className="bg-white p-8 rounded-xl shadow-lg">
+          <h3 className="text-2xl font-bold mb-6">Checkout</h3>
+          
+          <div className="mb-6">
+            <h4 className="font-semibold mb-3">Resumen del pedido:</h4>
+            {cart.map(item => (
+              <div key={item.id} className="flex justify-between py-2 border-b">
+                <span>{item.title}</span>
+                <span className="font-semibold">${item.price}</span>
+              </div>
+            ))}
+          </div>
+
+          <Elements stripe={stripePromise}>
+            <CheckoutForm 
+              amount={cart.reduce((sum, item) => sum + item.price, 0)}
+              onSuccess={handlePaymentSuccess}
+              onCancel={() => setShowCheckout(false)}
+            />
+          </Elements>
         </div>
       ) : (
         <>
@@ -686,15 +744,16 @@ const requireLogin = (action) => {
               </div>
             ))}
           </div>
+          
           <div className="bg-white p-8 rounded-xl shadow-lg">
             <div className="flex justify-between items-center mb-6">
               <span className="text-2xl font-bold">Total:</span>
               <span className="text-3xl font-bold text-indigo-600">
-                ${cart.reduce((sum, item) => sum + item.price, 0)}
+                ${cart.reduce((sum, item) => sum + item.price, 0).toFixed(2)}
               </span>
             </div>
             <button
-              onClick={handleCheckout}
+              onClick={() => setShowCheckout(true)}
               className="w-full bg-indigo-600 text-white py-4 rounded-xl font-semibold hover:bg-indigo-700 transition-all"
             >
               Proceder al Pago
@@ -704,14 +763,14 @@ const requireLogin = (action) => {
       )}
     </div>
   );
+};
 
 const UploadProductView = () => {
   const [formData, setFormData] = useState({
     title: '',
     description: '',
     price: '',
-    category: 'design',
-    image: ''
+    category: 'design'
   });
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
@@ -720,7 +779,20 @@ const UploadProductView = () => {
   const handleImageChange = (e) => {
     const file = e.target.files[0];
     if (file) {
+      // Validar tamaño
+      if (file.size > 5 * 1024 * 1024) {
+        alert('La imagen no debe superar 5MB');
+        return;
+      }
+
+      // Validar tipo
+      if (!file.type.startsWith('image/')) {
+        alert('Solo se permiten imágenes');
+        return;
+      }
+
       setImageFile(file);
+      
       // Crear preview
       const reader = new FileReader();
       reader.onloadend = () => {
@@ -746,17 +818,21 @@ const UploadProductView = () => {
     setUploading(true);
 
     try {
-      // Importar función de upload
-      const { uploadProductImage } = await import('./firebase/storage');
+      console.log('📤 Iniciando subida de producto...');
       
-      // Subir imagen a Storage
+      // Subir imagen a Firebase Storage
+      const { uploadProductImage } = await import('./firebase/storage');
       const imageUrl = await uploadProductImage(imageFile, currentUser.id);
       
-      // Crear producto con la URL de la imagen
+      console.log('🖼️ URL de imagen obtenida:', imageUrl);
+      
+      // Crear producto con la URL real de la imagen
       const productData = {
-        ...formData,
-        image: imageUrl,
-        price: parseFloat(formData.price)
+        title: formData.title,
+        description: formData.description,
+        price: parseFloat(formData.price),
+        category: formData.category,
+        image: imageUrl
       };
 
       await handleProductSubmit(productData);
@@ -766,13 +842,14 @@ const UploadProductView = () => {
         title: '',
         description: '',
         price: '',
-        category: 'design',
-        image: ''
+        category: 'design'
       });
       setImageFile(null);
       setImagePreview(null);
+      
+      alert('¡Producto publicado exitosamente! Espera la aprobación del administrador.');
     } catch (error) {
-      console.error('Error al publicar:', error);
+      console.error('❌ Error al publicar:', error);
       alert('Error al subir la imagen: ' + error.message);
     } finally {
       setUploading(false);
@@ -783,8 +860,9 @@ const UploadProductView = () => {
     <div className="max-w-3xl mx-auto px-4 py-8">
       <h2 className="text-3xl font-bold mb-8">Publicar Nuevo Trabajo</h2>
       <form onSubmit={handleSubmit} className="bg-white p-8 rounded-xl shadow-lg">
+        
         <div className="mb-6">
-          <label className="block font-semibold mb-2">Título del Trabajo</label>
+          <label className="block font-semibold mb-2">Título del Trabajo *</label>
           <input
             type="text"
             value={formData.title}
@@ -792,23 +870,25 @@ const UploadProductView = () => {
             className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none"
             placeholder="Ej: Logo Moderno Minimalista"
             required
+            disabled={uploading}
           />
         </div>
         
         <div className="mb-6">
-          <label className="block font-semibold mb-2">Descripción</label>
+          <label className="block font-semibold mb-2">Descripción *</label>
           <textarea
             value={formData.description}
             onChange={(e) => setFormData({...formData, description: e.target.value})}
             className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none h-32"
             placeholder="Describe tu trabajo en detalle..."
             required
+            disabled={uploading}
           />
         </div>
         
         <div className="grid md:grid-cols-2 gap-6 mb-6">
           <div>
-            <label className="block font-semibold mb-2">Precio ($)</label>
+            <label className="block font-semibold mb-2">Precio ($) *</label>
             <input
               type="number"
               value={formData.price}
@@ -816,15 +896,18 @@ const UploadProductView = () => {
               className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none"
               placeholder="45"
               min="1"
+              step="0.01"
               required
+              disabled={uploading}
             />
           </div>
           <div>
-            <label className="block font-semibold mb-2">Categoría</label>
+            <label className="block font-semibold mb-2">Categoría *</label>
             <select
               value={formData.category}
               onChange={(e) => setFormData({...formData, category: e.target.value})}
               className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+              disabled={uploading}
             >
               {categories.filter(c => c.id !== 'all').map(cat => (
                 <option key={cat.id} value={cat.id}>{cat.name}</option>
@@ -834,14 +917,14 @@ const UploadProductView = () => {
         </div>
         
         <div className="mb-6">
-          <label className="block font-semibold mb-2">Imagen de Portada</label>
+          <label className="block font-semibold mb-2">Imagen de Portada * (máx. 5MB)</label>
           
           {imagePreview ? (
             <div className="relative">
               <img 
                 src={imagePreview} 
                 alt="Preview" 
-                className="w-full h-64 object-cover rounded-lg mb-4"
+                className="w-full h-64 object-cover rounded-lg mb-4 border-2 border-indigo-200"
               />
               <button
                 type="button"
@@ -849,24 +932,29 @@ const UploadProductView = () => {
                   setImageFile(null);
                   setImagePreview(null);
                 }}
-                className="absolute top-2 right-2 bg-red-500 text-white p-2 rounded-full hover:bg-red-600"
+                disabled={uploading}
+                className="absolute top-2 right-2 bg-red-500 text-white p-2 rounded-full hover:bg-red-600 transition-all disabled:opacity-50"
               >
                 <X size={20} />
               </button>
+              <p className="text-sm text-gray-600 text-center">
+                {imageFile.name} ({(imageFile.size / 1024 / 1024).toFixed(2)} MB)
+              </p>
             </div>
           ) : (
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-indigo-500 transition-all">
+            <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-indigo-500 transition-all cursor-pointer">
               <input
                 type="file"
                 accept="image/*"
                 onChange={handleImageChange}
                 className="hidden"
                 id="image-upload"
+                disabled={uploading}
               />
               <label htmlFor="image-upload" className="cursor-pointer">
                 <Upload className="mx-auto text-gray-400 mb-2" size={48} />
                 <p className="text-gray-600 font-semibold">Click para subir imagen</p>
-                <p className="text-sm text-gray-500 mt-2">PNG, JPG hasta 5MB</p>
+                <p className="text-sm text-gray-500 mt-2">PNG, JPG, GIF hasta 5MB</p>
               </label>
             </div>
           )}
@@ -874,11 +962,27 @@ const UploadProductView = () => {
         
         <button
           type="submit"
-          disabled={uploading}
-          className="w-full bg-indigo-600 text-white py-4 rounded-xl font-semibold hover:bg-indigo-700 transition-all disabled:bg-gray-400 disabled:cursor-not-allowed"
+          disabled={uploading || !imageFile}
+          className="w-full bg-indigo-600 text-white py-4 rounded-xl font-semibold hover:bg-indigo-700 transition-all disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
         >
-          {uploading ? 'Subiendo imagen...' : 'Publicar Trabajo'}
+          {uploading ? (
+            <>
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+              Subiendo imagen...
+            </>
+          ) : (
+            <>
+              <Upload size={20} />
+              Publicar Trabajo
+            </>
+          )}
         </button>
+        
+        {uploading && (
+          <p className="text-center text-gray-600 mt-4">
+            Por favor espera, esto puede tardar unos segundos...
+          </p>
+        )}
       </form>
     </div>
   );

@@ -4,6 +4,7 @@
   "private": true,
   "dependencies": {
     "@emailjs/browser": "^4.4.1",
+    "@stripe/react-stripe-js": "^5.2.0",
     "@stripe/stripe-js": "^8.1.0",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
